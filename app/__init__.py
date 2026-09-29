@@ -1,0 +1,1 @@
+"""CatalogIQ application package."""
