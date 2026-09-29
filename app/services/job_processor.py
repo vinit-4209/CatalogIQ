@@ -13,9 +13,9 @@ from app.database import (
 )
 from app.llm.base import BaseLLMProvider
 from app.llm.mock import MockLLMProvider
-from app.llm.validator import validate_enrichment
 from app.schemas import ProductInput
 from app.services.llm_limiter import get_llm_semaphore
+from app.services.retry import DEFAULT_BASE_BACKOFF_S, call_with_retries
 
 logger = logging.getLogger(__name__)
 
@@ -26,18 +26,17 @@ async def _process_single_product(
     provider: BaseLLMProvider,
     db_path: Union[Path, str],
     semaphore: asyncio.Semaphore,
+    base_backoff_s: float = DEFAULT_BASE_BACKOFF_S,
 ) -> None:
-    """Process a single product, wrapping only LLM enrichment in the semaphore."""
+    """Process a single product using retries with exponential backoff and semaphore protection."""
     try:
-        # Wrap ONLY the LLM enrichment call with the semaphore
-        async with semaphore:
-            raw_result = await provider.enrich(
-                raw_title=product.raw_title,
-                raw_description=product.raw_description,
-            )
-
-        # Validation and database persistence occur outside the semaphore
-        validated = validate_enrichment(raw_result)
+        validated = await call_with_retries(
+            provider=provider,
+            raw_title=product.raw_title,
+            raw_description=product.raw_description,
+            semaphore=semaphore,
+            base_backoff_s=base_backoff_s,
+        )
 
         upsert_product(
             {
@@ -57,7 +56,11 @@ async def _process_single_product(
         increment_job_counter(job_id, "done", db_path=db_path)
 
     except Exception as exc:
-        logger.warning("Product enrichment failed for SKU %s: %s", product.sku, exc)
+        logger.warning(
+            "Product enrichment failed for SKU %s after all retries: %s",
+            product.sku,
+            exc,
+        )
         upsert_product(
             {
                 "sku": product.sku,
@@ -82,12 +85,13 @@ async def process_job(
     provider: Optional[BaseLLMProvider] = None,
     db_path: Union[Path, str] = DEFAULT_DB_PATH,
     semaphore: Optional[asyncio.Semaphore] = None,
+    base_backoff_s: float = DEFAULT_BASE_BACKOFF_S,
 ) -> None:
     """
     Process products for a job asynchronously in the background.
 
     - Updates job status to 'running'.
-    - Processes products concurrently, strictly bounded by the shared LLM semaphore.
+    - Processes products concurrently with per-attempt LLM semaphore and exponential backoff.
     - Saves individual product results to SQLite.
     - Updates job progress counters (done / failed).
     - Updates job status to 'completed' upon completion.
@@ -101,7 +105,7 @@ async def process_job(
     # 1. Mark the job as running
     mark_job_running(job_id, db_path=db_path)
 
-    # 2. Process products bounded by the shared semaphore
+    # 2. Process products bounded by the shared semaphore with retries
     await asyncio.gather(
         *(
             _process_single_product(
@@ -110,6 +114,7 @@ async def process_job(
                 provider=provider,
                 db_path=db_path,
                 semaphore=semaphore,
+                base_backoff_s=base_backoff_s,
             )
             for product in products
         )
