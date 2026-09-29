@@ -47,14 +47,32 @@ async def http_exception_handler(request: Request, exc: HTTPException):
 app.include_router(api_router)
 
 BASE_DIR = Path(__file__).resolve().parent.parent
-FRONTEND_FILE = BASE_DIR / "frontend" / "index.html"
+FRONTEND_DIR = BASE_DIR / "frontend"
+
+from fastapi.staticfiles import StaticFiles
+
+# Mount /frontend for static assets
+app.mount("/frontend", StaticFiles(directory=FRONTEND_DIR), name="frontend")
 
 
-@app.get("/", response_class=HTMLResponse)
+@app.get("/style.css", include_in_schema=False)
+def serve_css():
+    """Serve frontend stylesheet."""
+    return FileResponse(FRONTEND_DIR / "style.css", media_type="text/css")
+
+
+@app.get("/app.js", include_in_schema=False)
+def serve_js():
+    """Serve frontend JavaScript."""
+    return FileResponse(FRONTEND_DIR / "app.js", media_type="application/javascript")
+
+
+@app.get("/", response_class=FileResponse)
 def serve_root():
-    """Serve the frontend placeholder."""
-    if FRONTEND_FILE.exists():
-        return FileResponse(FRONTEND_FILE)
+    """Serve the frontend single-page application."""
+    index_file = FRONTEND_DIR / "index.html"
+    if index_file.exists():
+        return FileResponse(index_file, media_type="text/html")
     return HTMLResponse(
         "<!DOCTYPE html><html><body><h1>CatalogIQ</h1><p>Frontend placeholder</p></body></html>"
     )

@@ -3,51 +3,275 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>CatalogIQ</title>
-  <style>
-    body {
-      font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-      margin: 0;
-      padding: 2rem;
-      background: #f8fafc;
-      color: #0f172a;
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-      justify-content: center;
-      min-height: 80vh;
-    }
-    .card {
-      background: #ffffff;
-      padding: 2rem;
-      border-radius: 8px;
-      box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
-      max-width: 480px;
-      width: 100%;
-      text-align: center;
-    }
-    h1 {
-      margin-top: 0;
-      color: #1e293b;
-    }
-    p {
-      color: #64748b;
-      line-height: 1.5;
-    }
-    code {
-      background: #f1f5f9;
-      padding: 0.2rem 0.4rem;
-      border-radius: 4px;
-      font-size: 0.9em;
-    }
-  </style>
+  <title>CatalogIQ - Product Catalog Enrichment</title>
+  <meta name="description" content="LLM-powered product listing enrichment, deduplication, and approval catalogue.">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/style.css">
 </head>
 <body>
-  <div class="card">
-    <h1>CatalogIQ</h1>
-    <p>Product Listing Enrichment Service</p>
-    <p>Backend is running. Frontend UI will be implemented in upcoming steps.</p>
-    <p>Check health at: <code>/api/health</code></p>
+  <!-- Top Navigation / Header -->
+  <header class="header">
+    <div class="header-container">
+      <div class="brand">
+        <div class="brand-logo" aria-hidden="true">CQ</div>
+        <div class="brand-info">
+          <h1>CatalogIQ</h1>
+          <p class="brand-subtitle">Product Listing Enrichment & Catalogue</p>
+        </div>
+      </div>
+      <div class="header-status" id="systemHealthStatus">
+        <span class="status-indicator"></span>
+        <span class="status-text">Provider: <strong id="healthProvider">--</strong></span>
+        <span class="status-divider">|</span>
+        <span class="status-text">Concurrency: <strong id="healthConcurrency">--</strong></span>
+      </div>
+    </div>
+  </header>
+
+  <main class="main-content">
+    <!-- Top Grid: CSV Upload & Live Job Progress -->
+    <div class="dashboard-grid">
+      <!-- Section 1: CSV Upload Card -->
+      <section class="card upload-card" aria-labelledby="uploadHeading">
+        <div class="card-header">
+          <h2 id="uploadHeading">Ingest Product CSV</h2>
+          <span class="badge badge-info">Client-side Parse</span>
+        </div>
+        <p class="card-description">
+          Upload a CSV file containing <code>sku</code>, <code>raw_title</code>, and optional <code>raw_description</code> columns.
+        </p>
+
+        <form id="uploadForm" class="upload-form" novalidate>
+          <div class="file-dropzone" id="fileDropzone">
+            <input type="file" id="csvFileInput" accept=".csv" class="file-input" aria-label="Choose CSV file">
+            <label for="csvFileInput" class="file-label" id="fileLabel">
+              <span class="upload-icon" aria-hidden="true">&#8682;</span>
+              <span class="file-prompt">Choose a CSV file or drag &amp; drop</span>
+              <span class="file-chosen" id="fileNameDisplay">No file chosen</span>
+            </label>
+          </div>
+
+          <div class="form-actions">
+            <button type="submit" id="uploadBtn" class="btn btn-primary" disabled>
+              Submit Enrichment Job
+            </button>
+          </div>
+        </form>
+
+        <div id="uploadError" class="alert alert-error hidden" role="alert" aria-live="assertive"></div>
+      </section>
+
+      <!-- Section 2: Live Job Progress Card -->
+      <section class="card job-card" id="jobStatusCard" aria-labelledby="jobHeading">
+        <div class="card-header">
+          <h2 id="jobHeading">Active Job Status</h2>
+          <span class="badge" id="jobStatusBadge">Idle</span>
+        </div>
+        
+        <div id="jobEmptyState" class="job-empty-state">
+          <p>No job submitted yet. Upload a CSV to start an enrichment batch.</p>
+        </div>
+
+        <div id="jobDetailsContent" class="job-details hidden">
+          <div class="job-meta-row">
+            <span class="meta-label">Job ID:</span>
+            <code class="meta-value" id="jobId">--</code>
+          </div>
+
+          <div class="progress-section">
+            <div class="progress-labels">
+              <span class="progress-title">Batch Progress</span>
+              <span class="progress-count" id="jobProgressText">0 / 0</span>
+            </div>
+            <div class="progress-track" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" id="jobProgressAria">
+              <div class="progress-bar" id="jobProgressBar" style="width: 0%;"></div>
+            </div>
+          </div>
+
+          <div class="job-counters-grid">
+            <div class="counter-box">
+              <span class="counter-num" id="jobTotal">0</span>
+              <span class="counter-label">Total</span>
+            </div>
+            <div class="counter-box counter-done">
+              <span class="counter-num" id="jobDone">0</span>
+              <span class="counter-label">Enriched</span>
+            </div>
+            <div class="counter-box counter-failed">
+              <span class="counter-num" id="jobFailed">0</span>
+              <span class="counter-label">Failed</span>
+            </div>
+            <div class="counter-box counter-cache">
+              <span class="counter-num" id="jobCacheHits">0</span>
+              <span class="counter-label">Cache Hits</span>
+            </div>
+          </div>
+        </div>
+      </section>
+    </div>
+
+    <!-- Section 3: Catalogue -->
+    <section class="card catalogue-card" aria-labelledby="catalogueHeading">
+      <div class="catalogue-header">
+        <div>
+          <h2 id="catalogueHeading">Product Catalogue</h2>
+          <p class="card-description">
+            View, search, filter, and review product listing enrichments.
+          </p>
+        </div>
+        <div class="catalogue-stats">
+          <span id="totalProductsCount" class="total-count-badge">0 products</span>
+        </div>
+      </div>
+
+      <!-- Controls Toolbar -->
+      <div class="toolbar">
+        <div class="search-group">
+          <label for="searchInput" class="sr-only">Search products</label>
+          <div class="search-input-wrapper">
+            <span class="search-icon" aria-hidden="true">&#128269;</span>
+            <input
+              type="search"
+              id="searchInput"
+              class="form-control search-control"
+              placeholder="Search by raw or clean title (debounced)..."
+              autocomplete="off"
+            >
+          </div>
+        </div>
+
+        <div class="filter-group">
+          <label for="categoryFilter" class="filter-label">Category:</label>
+          <select id="categoryFilter" class="form-control select-control">
+            <option value="">All Categories</option>
+            <option value="Groceries">Groceries</option>
+            <option value="Beverages">Beverages</option>
+            <option value="Personal Care">Personal Care</option>
+            <option value="Household">Household</option>
+            <option value="Electronics">Electronics</option>
+            <option value="Fashion">Fashion</option>
+            <option value="Home & Kitchen">Home &amp; Kitchen</option>
+            <option value="Other">Other</option>
+          </select>
+        </div>
+
+        <button type="button" id="refreshBtn" class="btn btn-secondary" title="Refresh catalogue">
+          &#8635; Refresh
+        </button>
+      </div>
+
+      <!-- Catalogue Table Container -->
+      <div class="table-responsive">
+        <table class="table" id="productsTable">
+          <thead>
+            <tr>
+              <th scope="col" style="width: 120px;">SKU</th>
+              <th scope="col" style="width: 100px;">Status</th>
+              <th scope="col">Titles (Clean / Raw)</th>
+              <th scope="col" style="width: 130px;">Category</th>
+              <th scope="col" style="width: 110px;">Brand</th>
+              <th scope="col">Tags</th>
+              <th scope="col" style="width: 120px;">Error</th>
+              <th scope="col" style="width: 90px; text-align: center;">Actions</th>
+            </tr>
+          </thead>
+          <tbody id="productsTableBody">
+            <tr class="empty-row">
+              <td colspan="8">Loading catalogue...</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <!-- Pagination Footer -->
+      <nav class="pagination-nav" aria-label="Catalogue pagination">
+        <div class="pagination-info">
+          Showing <span id="pageIndicator">Page 1</span>
+        </div>
+        <div class="pagination-buttons">
+          <button type="button" id="prevPageBtn" class="btn btn-secondary" disabled>
+            &larr; Previous
+          </button>
+          <button type="button" id="nextPageBtn" class="btn btn-secondary" disabled>
+            Next &rarr;
+          </button>
+        </div>
+      </nav>
+    </section>
+  </main>
+
+  <!-- Review / Edit Product Modal -->
+  <div id="editModal" class="modal-backdrop hidden" role="dialog" aria-modal="true" aria-labelledby="modalTitle">
+    <div class="modal-card">
+      <div class="modal-header">
+        <h3 id="modalTitle">Review &amp; Edit Product</h3>
+        <button type="button" id="modalCloseX" class="btn-close" aria-label="Close modal">&times;</button>
+      </div>
+
+      <form id="editForm" class="modal-body" novalidate>
+        <div class="form-group">
+          <label class="form-label" for="editSku">SKU (Read-only)</label>
+          <input type="text" id="editSku" class="form-control" readonly disabled>
+        </div>
+
+        <div class="form-group">
+          <label class="form-label" for="editRawTitle">Raw Title (Read-only)</label>
+          <input type="text" id="editRawTitle" class="form-control" readonly disabled>
+        </div>
+
+        <div class="form-group">
+          <label class="form-label" for="editRawDescription">Raw Description (Read-only)</label>
+          <textarea id="editRawDescription" class="form-control" rows="2" readonly disabled></textarea>
+        </div>
+
+        <hr class="modal-divider">
+
+        <div class="form-group">
+          <label class="form-label" for="editCleanTitle">
+            Clean Title <span class="required">*</span>
+          </label>
+          <input type="text" id="editCleanTitle" class="form-control" required placeholder="Approved, clean product title">
+        </div>
+
+        <div class="form-group">
+          <label class="form-label" for="editCategory">
+            Category <span class="required">*</span>
+          </label>
+          <select id="editCategory" class="form-control select-control" required>
+            <option value="Groceries">Groceries</option>
+            <option value="Beverages">Beverages</option>
+            <option value="Personal Care">Personal Care</option>
+            <option value="Household">Household</option>
+            <option value="Electronics">Electronics</option>
+            <option value="Fashion">Fashion</option>
+            <option value="Home & Kitchen">Home &amp; Kitchen</option>
+            <option value="Other">Other</option>
+          </select>
+        </div>
+
+        <div class="form-group">
+          <label class="form-label" for="editTags">
+            Tags (comma-separated, max 5)
+          </label>
+          <input type="text" id="editTags" class="form-control" placeholder="e.g. wireless, bluetooth, audio">
+          <small class="form-hint">Separate tags with commas. Lowercase alphanumeric tags.</small>
+        </div>
+
+        <div id="modalError" class="alert alert-error hidden" role="alert"></div>
+
+        <div class="modal-footer">
+          <button type="button" id="editCancelBtn" class="btn btn-secondary">Cancel</button>
+          <button type="submit" id="editSaveBtn" class="btn btn-primary">Approve &amp; Save</button>
+        </div>
+      </form>
+    </div>
   </div>
+
+  <!-- Notification Toast -->
+  <div id="toast" class="toast hidden" role="status" aria-live="polite"></div>
+
+  <script src="/app.js"></script>
 </body>
 </html>

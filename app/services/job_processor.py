@@ -108,7 +108,9 @@ async def process_job(
     - Updates job status to 'completed' upon completion.
     """
     if provider is None:
-        provider = MockLLMProvider()
+        from app.llm.factory import get_llm_provider
+
+        provider = get_llm_provider()
 
     if semaphore is None:
         semaphore = get_llm_semaphore()

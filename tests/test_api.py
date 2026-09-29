@@ -9,14 +9,16 @@ from app.database import (
     upsert_product,
 )
 from app.main import app
+from app.config import settings
 from app.services.metrics import reset_metrics
 
 
 @pytest.fixture(autouse=True)
 def setup_test_db(tmp_path, monkeypatch):
-    """Isolate database for every API test."""
+    """Isolate database and mock provider for every API test."""
     test_db = tmp_path / "test_api.db"
     monkeypatch.setenv("CATALOGIQ_DB_PATH", str(test_db))
+    monkeypatch.setattr(settings, "llm_provider", "mock")
     init_db(test_db)
     reset_metrics()
     return test_db
@@ -282,3 +284,21 @@ def test_background_job_processing(client, setup_test_db, monkeypatch):
     final_job = client.get(f"/api/jobs/{job_id}").json()
     assert final_job["status"] == "completed"
     assert final_job["done"] == 2
+
+
+def test_serve_frontend_index(client):
+    res = client.get("/")
+    assert res.status_code == 200
+    assert "CatalogIQ" in res.text
+    assert "<!DOCTYPE html>" in res.text
+
+
+def test_serve_frontend_static_assets(client):
+    res_css = client.get("/style.css")
+    assert res_css.status_code == 200
+    assert "CatalogIQ" in res_css.text
+
+    res_js = client.get("/app.js")
+    assert res_js.status_code == 200
+    assert "API_BASE" in res_js.text
+
