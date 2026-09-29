@@ -1,96 +1,132 @@
 # CatalogIQ
 
-CatalogIQ is a service designed to take messy product listings from marketplaces and quick-commerce platforms and use an LLM pipeline to turn them into a clean, searchable catalogue.
-
-## Architecture Principles
-- **Minimal & Lightweight**: Built for a 2-day internship assignment scope using Python, FastAPI, SQLite, and vanilla HTML/CSS/JS.
-- **No Over-Engineering**: No Redis, Celery, Docker, React, or microservices.
-- **Controlled Concurrency**: Bounded parallel calls to protect LLM rate limits.
-- **Resilience**: Retries with exponential backoff and deduplication/caching.
+CatalogIQ is a high-throughput, asynchronous product catalog enrichment engine. It ingests messy product listings, cleans titles, classifies items into standardized categories, extracts brands, and generates search tags using an LLM pipeline with concurrency control, deduplication, and human-in-the-loop review.
 
 ---
 
-## Project Structure
+## 1. Quickstart (Clean Machine Setup)
 
-```
-CatalogIQ/
-├── app/
-│   ├── __init__.py
-│   └── main.py          # FastAPI application & endpoints
-├── frontend/
-│   └── index.html       # Vanilla HTML/CSS/JS UI placeholder
-├── tests/               # Unit and integration tests (upcoming)
-├── data/                # Sample datasets / CSVs (upcoming)
-├── .env.example         # Template for environment variables
-├── .gitignore           # Git ignore rules
-├── requirements.txt     # Python dependencies
-├── DESIGN.md            # System design & architecture document
-└── README.md            # Project documentation & runbook
-```
-
----
-
-## Getting Started
-
-### 1. Prerequisites
+### Prerequisites
 - Python 3.10+ (tested on Python 3.12)
 
-### 2. Setup Virtual Environment
+### Setup Steps
 ```bash
-# Windows
+# 1. Clone repository & navigate to directory
+cd CatalogIQ
+
+# 2. Create and activate a virtual environment
 python -m venv venv
+
+# Windows (PowerShell):
 .\venv\Scripts\activate
-
-# macOS / Linux
-python3 -m venv venv
+# macOS / Linux:
 source venv/bin/activate
-```
 
-### 3. Install Dependencies
-```bash
+# 3. Install dependencies
 pip install -r requirements.txt
-```
 
-### 4. Configure Environment Variables
-Copy `.env.example` to `.env`:
-```bash
-# Windows (PowerShell)
+# 4. Copy environment configuration
+# Windows (PowerShell):
 Copy-Item .env.example .env
-
-# macOS / Linux
+# macOS / Linux:
 cp .env.example .env
-```
 
-### 5. Run Server
-```bash
+# 5. Start the server
 uvicorn app.main:app --reload --port 8000
 ```
-The server will start at `http://localhost:8000`.
+
+Open **`http://localhost:8000`** in your browser to access the web dashboard. The SQLite database is automatically initialized at `data/catalogiq.db`.
 
 ---
 
-## Health Check Verification
+## 2. Running Modes: Mock vs Real LLM
+
+Configuration is controlled via `.env`:
+
+### A. Mock Mode (Default)
+Runs locally with zero external API dependencies or costs. Simulates network latency (200ms) and random retryable failures (10%):
+```env
+LLM_PROVIDER=mock
+LLM_CONCURRENCY=5
+MOCK_LATENCY_MS=200
+MOCK_FAILURE_RATE=0.1
+```
+
+### B. Real LLM Mode (Groq / Free Tier)
+Connects to Groq Cloud for fast inference using models like `openai/gpt-oss-120b` or `llama-3.3-70b-versatile`:
+```env
+LLM_PROVIDER=groq
+GROQ_API_KEY=gsk_your_groq_api_key_here
+GROQ_MODEL=openai/gpt-oss-120b
+LLM_CONCURRENCY=5
+```
+*Tip: Get a free API key at [console.groq.com](https://console.groq.com).*
+
+Verify your active provider via health check:
 ```bash
 curl http://localhost:8000/api/health
-```
-
-Expected response:
-```json
-{
-  "status": "ok",
-  "llm_provider": "mock",
-  "llm_concurrency": 5
-}
+# {"status":"ok","llm_provider":"groq","llm_concurrency":5}
 ```
 
 ---
 
-## Implementation Status
-- [x] Initial project skeleton and FastAPI server setup
-- [ ] Database schema & persistence (SQLite)
-- [ ] LLM provider interface (Mock & Real)
-- [ ] Background job processing & concurrency control
-- [ ] In-flight deduplication & caching
-- [ ] Product catalogue & search APIs
-- [ ] Frontend single-page app (vanilla JS)
-- [ ] Unit & concurrency test suite
+## 3. Running the Test Suite
+
+The test suite covers schema validation, database operations, concurrency semaphores, deduplication caching, retry backoffs, and API endpoints:
+
+```bash
+# Run all tests (70 tests)
+pytest
+
+# Run tests with output and run times
+pytest -v
+
+# Run a specific test suite
+pytest tests/test_concurrency.py
+pytest tests/test_llm_interface.py
+```
+
+*Note: Tests run completely isolated using in-memory / temporary databases and mock providers.*
+
+---
+
+## 4. LLM Prompt Design
+
+Enrichment requests use a low-temperature (`0.1`) prompt with structured JSON output enforcement:
+
+### System Prompt
+```text
+You are an e-commerce catalog enrichment assistant.
+Given a raw product title and optional raw description, extract and generate structured catalog attributes.
+
+Output MUST be a valid JSON object with the following fields:
+- "clean_title": A clean, readable, standardized product title without promotional fluff or typos.
+- "category": Exactly one of: ["Groceries", "Beverages", "Personal Care", "Household", "Electronics", "Fashion", "Home & Kitchen", "Other"]
+- "brand": The inferred brand name as a string, or null if unknown or unbranded.
+- "tags": A list of up to 5 lowercase keyword tags describing the product.
+
+Respond ONLY with valid JSON.
+```
+
+### User Input
+```text
+Raw Title: {raw_title}
+Raw Description: {raw_description}
+```
+
+---
+
+## 5. Assumptions & Unfinished Scope
+
+### Key Assumptions Made
+1. **Single-Node Deployment:** The current MVP operates on a single server where an in-process `asyncio.Semaphore` and SQLite in WAL mode provide thread-safe, non-blocking reads and writes without external brokers (Redis/Postgres).
+2. **Fixed Taxonomy:** Categories are strictly restricted to 8 standard e-commerce verticals.
+3. **SKU Authority:** SKU serves as the unique primary key; subsequent batches with matching SKUs update existing catalog records (`ON CONFLICT(sku) DO UPDATE`).
+4. **Client-Side CSV Parsing:** Browser parsing via PapaParse offloads CPU overhead and prevents multi-megabyte multipart uploads for typical business batches (100–5,000 items).
+
+### Unfinished / Production Roadmap
+- **Distributed Queue (Celery / Redis Streams):** Move beyond in-process `BackgroundTasks` to allow multiple worker nodes to pull from a unified queue.
+- **Multi-Product Prompt Batching:** Packing 5–10 items per LLM call to scale throughput and reduce API request count when handling 1M+ items/day.
+- **Server Crash Auto-Reconciliation:** An automatic startup scan to re-enqueue items left in `running` status after an unexpected hard server restart.
+- **Full-Text Search (FTS5 / Elasticsearch):** Replace substring `LIKE '%query%'` with tokenized FTS indexing to sustain sub-5ms queries on 5M+ product catalogs.
+- **Automated Hallucination Scoring:** Cross-checking extracted brands against a canonical brand dictionary to automatically route suspicious products to a `needs_review` queue.
