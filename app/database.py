@@ -1,10 +1,20 @@
+import os
 import sqlite3
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Optional, Union
+from typing import List, Optional, Tuple, Union
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 DEFAULT_DB_PATH = BASE_DIR / "data" / "catalogiq.db"
+
+
+def get_default_db_path() -> Path:
+    """Return configured database path, supporting CATALOGIQ_DB_PATH override."""
+    env_path = os.getenv("CATALOGIQ_DB_PATH")
+    if env_path:
+        return Path(env_path)
+    return DEFAULT_DB_PATH
+
 
 SCHEMA_SQL = """
 CREATE TABLE IF NOT EXISTS jobs (
@@ -37,19 +47,26 @@ CREATE INDEX IF NOT EXISTS idx_products_category ON products(category);
 """
 
 
-def get_connection(db_path: Union[Path, str] = DEFAULT_DB_PATH) -> sqlite3.Connection:
+def get_connection(
+    db_path: Optional[Union[Path, str]] = None
+) -> sqlite3.Connection:
     """Create and return a configured SQLite connection."""
-    if str(db_path) != ":memory:":
-        Path(db_path).parent.mkdir(parents=True, exist_ok=True)
+    target_path = db_path if db_path is not None else get_default_db_path()
+    if str(target_path) != ":memory:":
+        Path(target_path).parent.mkdir(parents=True, exist_ok=True)
 
-    conn = sqlite3.connect(str(db_path), check_same_thread=False, timeout=30.0)
+    conn = sqlite3.connect(
+        str(target_path), check_same_thread=False, timeout=30.0
+    )
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA journal_mode=WAL;")
     conn.execute("PRAGMA busy_timeout = 30000;")
     return conn
 
 
-def init_db(db_target: Union[Path, str, sqlite3.Connection] = DEFAULT_DB_PATH) -> None:
+def init_db(
+    db_target: Optional[Union[Path, str, sqlite3.Connection]] = None
+) -> None:
     """Initialize database tables and indexes."""
     if isinstance(db_target, sqlite3.Connection):
         db_target.executescript(SCHEMA_SQL)
@@ -64,7 +81,7 @@ def init_db(db_target: Union[Path, str, sqlite3.Connection] = DEFAULT_DB_PATH) -
 
 
 def create_job(
-    job_id: str, total: int, db_path: Union[Path, str] = DEFAULT_DB_PATH
+    job_id: str, total: int, db_path: Optional[Union[Path, str]] = None
 ) -> dict:
     """Insert a new job with 'queued' status."""
     created_at = datetime.now(timezone.utc).isoformat()
@@ -94,7 +111,7 @@ def create_job(
 
 
 def get_job(
-    job_id: str, db_path: Union[Path, str] = DEFAULT_DB_PATH
+    job_id: str, db_path: Optional[Union[Path, str]] = None
 ) -> Optional[dict]:
     """Retrieve a job by ID."""
     conn = get_connection(db_path)
@@ -106,7 +123,7 @@ def get_job(
 
 
 def mark_job_running(
-    job_id: str, db_path: Union[Path, str] = DEFAULT_DB_PATH
+    job_id: str, db_path: Optional[Union[Path, str]] = None
 ) -> None:
     """Update job status to 'running' and set started_at timestamp."""
     now = datetime.now(timezone.utc).isoformat()
@@ -122,7 +139,7 @@ def mark_job_running(
 
 
 def mark_job_completed(
-    job_id: str, db_path: Union[Path, str] = DEFAULT_DB_PATH
+    job_id: str, db_path: Optional[Union[Path, str]] = None
 ) -> None:
     """Update job status to 'completed' and set finished_at timestamp."""
     now = datetime.now(timezone.utc).isoformat()
@@ -138,7 +155,7 @@ def mark_job_completed(
 
 
 def increment_job_counter(
-    job_id: str, counter: str, db_path: Union[Path, str] = DEFAULT_DB_PATH
+    job_id: str, counter: str, db_path: Optional[Union[Path, str]] = None
 ) -> None:
     """Atomically increment done, failed, or cache_hits counter for a job."""
     if counter not in ("done", "failed", "cache_hits"):
@@ -155,7 +172,7 @@ def increment_job_counter(
 
 
 def upsert_product(
-    data: dict, db_path: Union[Path, str] = DEFAULT_DB_PATH
+    data: dict, db_path: Optional[Union[Path, str]] = None
 ) -> None:
     """Insert or update a product record."""
     conn = get_connection(db_path)
@@ -195,7 +212,7 @@ def upsert_product(
 
 
 def get_product(
-    sku: str, db_path: Union[Path, str] = DEFAULT_DB_PATH
+    sku: str, db_path: Optional[Union[Path, str]] = None
 ) -> Optional[dict]:
     """Retrieve a product by SKU."""
     conn = get_connection(db_path)
@@ -207,7 +224,7 @@ def get_product(
 
 
 def get_enriched_product_by_content_hash(
-    content_hash: str, db_path: Union[Path, str] = DEFAULT_DB_PATH
+    content_hash: str, db_path: Optional[Union[Path, str]] = None
 ) -> Optional[dict]:
     """Retrieve the first successfully enriched product matching content_hash."""
     conn = get_connection(db_path)
@@ -223,4 +240,101 @@ def get_enriched_product_by_content_hash(
         return dict(row) if row else None
     finally:
         conn.close()
+
+
+def list_products(
+    page: int = 1,
+    page_size: int = 20,
+    category: Optional[str] = None,
+    q: Optional[str] = None,
+    db_path: Optional[Union[Path, str]] = None,
+) -> Tuple[List[dict], int]:
+    """
+    Query paginated products sorted by SKU with optional category filter and search term.
+    Returns (items, total_count).
+    """
+    conn = get_connection(db_path)
+    try:
+        conditions = []
+        params = []
+
+        if category is not None:
+            conditions.append("category = ?")
+            params.append(category)
+
+        if q is not None and q.strip():
+            # Case-insensitive substring search across clean_title or raw_title
+            conditions.append("(clean_title LIKE ? OR raw_title LIKE ?)")
+            search_param = f"%{q.strip()}%"
+            params.extend([search_param, search_param])
+
+        where_clause = f"WHERE {' AND '.join(conditions)}" if conditions else ""
+
+        # Count total
+        count_sql = f"SELECT COUNT(*) FROM products {where_clause}"
+        total = conn.execute(count_sql, params).fetchone()[0]
+
+        # Fetch page sorted by SKU
+        offset = (page - 1) * page_size
+        fetch_sql = f"""
+            SELECT * FROM products
+            {where_clause}
+            ORDER BY sku ASC
+            LIMIT ? OFFSET ?
+        """
+        rows = conn.execute(fetch_sql, params + [page_size, offset]).fetchall()
+        items = [dict(row) for row in rows]
+        return items, total
+    finally:
+        conn.close()
+
+
+def update_product_approval(
+    sku: str,
+    clean_title: Optional[str] = None,
+    category: Optional[str] = None,
+    tags: Optional[List[str]] = None,
+    db_path: Optional[Union[Path, str]] = None,
+) -> Optional[dict]:
+    """
+    Update product fields and set status to 'approved'.
+    Returns updated product dict or None if SKU not found.
+    """
+    import json
+
+    conn = get_connection(db_path)
+    try:
+        with conn:
+            existing = conn.execute(
+                "SELECT * FROM products WHERE sku = ?", (sku,)
+            ).fetchone()
+            if not existing:
+                return None
+
+            updates = ["status = 'approved'"]
+            params = []
+
+            if clean_title is not None:
+                updates.append("clean_title = ?")
+                params.append(clean_title)
+
+            if category is not None:
+                updates.append("category = ?")
+                params.append(category)
+
+            if tags is not None:
+                updates.append("tags = ?")
+                params.append(json.dumps(tags))
+
+            params.append(sku)
+            sql = f"UPDATE products SET {', '.join(updates)} WHERE sku = ?"
+            conn.execute(sql, params)
+
+            updated = conn.execute(
+                "SELECT * FROM products WHERE sku = ?", (sku,)
+            ).fetchone()
+            return dict(updated) if updated else None
+    finally:
+        conn.close()
+
 

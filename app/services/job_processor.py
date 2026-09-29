@@ -93,7 +93,7 @@ async def process_job(
     job_id: str,
     products: List[ProductInput],
     provider: Optional[BaseLLMProvider] = None,
-    db_path: Union[Path, str] = DEFAULT_DB_PATH,
+    db_path: Optional[Union[Path, str]] = None,
     semaphore: Optional[asyncio.Semaphore] = None,
     base_backoff_s: float = DEFAULT_BASE_BACKOFF_S,
 ) -> None:

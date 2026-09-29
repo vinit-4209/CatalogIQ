@@ -41,7 +41,7 @@ async def get_or_enrich_product(
     raw_description: Optional[str],
     content_hash: str,
     provider: BaseLLMProvider,
-    db_path: Union[Path, str] = DEFAULT_DB_PATH,
+    db_path: Optional[Union[Path, str]] = None,
     semaphore: Optional[asyncio.Semaphore] = None,
     base_backoff_s: float = DEFAULT_BASE_BACKOFF_S,
 ) -> Tuple[Dict[str, Any], bool]:
