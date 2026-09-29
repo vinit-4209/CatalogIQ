@@ -1,11 +1,7 @@
-import os
 from pathlib import Path
 from fastapi import FastAPI
 from fastapi.responses import HTMLResponse, FileResponse
-from dotenv import load_dotenv
-
-# Load environment variables from .env if present
-load_dotenv()
+from app.config import settings
 
 app = FastAPI(
     title="CatalogIQ",
@@ -20,16 +16,10 @@ FRONTEND_FILE = BASE_DIR / "frontend" / "index.html"
 @app.get("/api/health")
 def get_health():
     """Health check endpoint returning system status and LLM configuration."""
-    provider = os.getenv("LLM_PROVIDER", "mock")
-    try:
-        concurrency = int(os.getenv("LLM_CONCURRENCY", "5"))
-    except ValueError:
-        concurrency = 5
-
     return {
         "status": "ok",
-        "llm_provider": provider,
-        "llm_concurrency": concurrency,
+        "llm_provider": settings.llm_provider,
+        "llm_concurrency": settings.llm_concurrency,
     }
 
 
