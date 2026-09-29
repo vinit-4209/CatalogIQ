@@ -104,3 +104,6 @@ async def get_or_enrich_product(
     finally:
         async with _in_flight_lock:
             _in_flight.pop(content_hash, None)
+        # Suppress unretrieved future warning if no listeners were awaiting this future
+        if fut.done() and not fut.cancelled():
+            fut.exception()

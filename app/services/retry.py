@@ -4,6 +4,7 @@ from typing import Any, Dict, Optional
 from app.llm.base import BaseLLMProvider
 from app.llm.validator import validate_enrichment
 from app.services.llm_limiter import get_llm_semaphore
+from app.services.metrics import metrics
 
 logger = logging.getLogger(__name__)
 
@@ -36,14 +37,25 @@ async def call_with_retries(
         try:
             # 1. Acquire semaphore ONLY for the duration of the LLM call
             async with semaphore:
-                raw_result = await provider.enrich(
-                    raw_title=raw_title,
-                    raw_description=raw_description,
-                )
+                metrics.record_llm_call_started()
+                try:
+                    raw_result = await provider.enrich(
+                        raw_title=raw_title,
+                        raw_description=raw_description,
+                    )
+                except Exception:
+                    metrics.record_llm_error()
+                    raise
+                finally:
+                    metrics.record_llm_call_finished()
 
             # 2. Validate output outside the semaphore
-            validated = validate_enrichment(raw_result)
-            return validated
+            try:
+                validated = validate_enrichment(raw_result)
+                return validated
+            except Exception:
+                metrics.record_llm_error()
+                raise
 
         except Exception as exc:
             last_error = exc
