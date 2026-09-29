@@ -14,8 +14,9 @@ from app.database import (
 from app.llm.base import BaseLLMProvider
 from app.llm.mock import MockLLMProvider
 from app.schemas import ProductInput
+from app.services.dedup import calculate_content_hash, get_or_enrich_product
 from app.services.llm_limiter import get_llm_semaphore
-from app.services.retry import DEFAULT_BASE_BACKOFF_S, call_with_retries
+from app.services.retry import DEFAULT_BASE_BACKOFF_S
 
 logger = logging.getLogger(__name__)
 
@@ -28,12 +29,19 @@ async def _process_single_product(
     semaphore: asyncio.Semaphore,
     base_backoff_s: float = DEFAULT_BASE_BACKOFF_S,
 ) -> None:
-    """Process a single product using retries with exponential backoff and semaphore protection."""
+    """Process a single product using deduplication, retries, and semaphore protection."""
+    content_hash = calculate_content_hash(
+        raw_title=product.raw_title,
+        raw_description=product.raw_description,
+    )
+
     try:
-        validated = await call_with_retries(
-            provider=provider,
+        validated, is_cache_hit = await get_or_enrich_product(
             raw_title=product.raw_title,
             raw_description=product.raw_description,
+            content_hash=content_hash,
+            provider=provider,
+            db_path=db_path,
             semaphore=semaphore,
             base_backoff_s=base_backoff_s,
         )
@@ -49,15 +57,17 @@ async def _process_single_product(
                 "tags": json.dumps(validated["tags"]),
                 "status": "enriched",
                 "error": None,
-                "content_hash": None,
+                "content_hash": content_hash,
             },
             db_path=db_path,
         )
+        if is_cache_hit:
+            increment_job_counter(job_id, "cache_hits", db_path=db_path)
         increment_job_counter(job_id, "done", db_path=db_path)
 
     except Exception as exc:
         logger.warning(
-            "Product enrichment failed for SKU %s after all retries: %s",
+            "Product enrichment failed for SKU %s: %s",
             product.sku,
             exc,
         )
@@ -72,7 +82,7 @@ async def _process_single_product(
                 "tags": None,
                 "status": "failed",
                 "error": str(exc),
-                "content_hash": None,
+                "content_hash": content_hash,
             },
             db_path=db_path,
         )
@@ -91,9 +101,10 @@ async def process_job(
     Process products for a job asynchronously in the background.
 
     - Updates job status to 'running'.
-    - Processes products concurrently with per-attempt LLM semaphore and exponential backoff.
-    - Saves individual product results to SQLite.
-    - Updates job progress counters (done / failed).
+    - Performs content-based deduplication and in-flight duplicate waiting.
+    - Limits concurrent LLM calls with process-wide semaphore and exponential backoff.
+    - Saves individual product results and content_hash to SQLite.
+    - Updates job progress counters (done / failed / cache_hits).
     - Updates job status to 'completed' upon completion.
     """
     if provider is None:
@@ -105,7 +116,7 @@ async def process_job(
     # 1. Mark the job as running
     mark_job_running(job_id, db_path=db_path)
 
-    # 2. Process products bounded by the shared semaphore with retries
+    # 2. Process products bounded by the shared semaphore with retries and dedup
     await asyncio.gather(
         *(
             _process_single_product(

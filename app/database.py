@@ -204,3 +204,23 @@ def get_product(
         return dict(row) if row else None
     finally:
         conn.close()
+
+
+def get_enriched_product_by_content_hash(
+    content_hash: str, db_path: Union[Path, str] = DEFAULT_DB_PATH
+) -> Optional[dict]:
+    """Retrieve the first successfully enriched product matching content_hash."""
+    conn = get_connection(db_path)
+    try:
+        row = conn.execute(
+            """
+            SELECT * FROM products
+            WHERE content_hash = ? AND status IN ('enriched', 'approved')
+            LIMIT 1
+            """,
+            (content_hash,),
+        ).fetchone()
+        return dict(row) if row else None
+    finally:
+        conn.close()
+
