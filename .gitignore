@@ -37,6 +37,7 @@ ENV/
 *.sqlite
 *.sqlite3
 *.db
+app/data/catalogiq.db
 
 # Testing & Coverage
 .pytest_cache/
