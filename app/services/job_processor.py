@@ -1,3 +1,4 @@
+import asyncio
 import json
 import logging
 from pathlib import Path
@@ -14,8 +15,65 @@ from app.llm.base import BaseLLMProvider
 from app.llm.mock import MockLLMProvider
 from app.llm.validator import validate_enrichment
 from app.schemas import ProductInput
+from app.services.llm_limiter import get_llm_semaphore
 
 logger = logging.getLogger(__name__)
+
+
+async def _process_single_product(
+    product: ProductInput,
+    job_id: str,
+    provider: BaseLLMProvider,
+    db_path: Union[Path, str],
+    semaphore: asyncio.Semaphore,
+) -> None:
+    """Process a single product, wrapping only LLM enrichment in the semaphore."""
+    try:
+        # Wrap ONLY the LLM enrichment call with the semaphore
+        async with semaphore:
+            raw_result = await provider.enrich(
+                raw_title=product.raw_title,
+                raw_description=product.raw_description,
+            )
+
+        # Validation and database persistence occur outside the semaphore
+        validated = validate_enrichment(raw_result)
+
+        upsert_product(
+            {
+                "sku": product.sku,
+                "raw_title": product.raw_title,
+                "raw_description": product.raw_description,
+                "clean_title": validated["clean_title"],
+                "category": validated["category"],
+                "brand": validated["brand"],
+                "tags": json.dumps(validated["tags"]),
+                "status": "enriched",
+                "error": None,
+                "content_hash": None,
+            },
+            db_path=db_path,
+        )
+        increment_job_counter(job_id, "done", db_path=db_path)
+
+    except Exception as exc:
+        logger.warning("Product enrichment failed for SKU %s: %s", product.sku, exc)
+        upsert_product(
+            {
+                "sku": product.sku,
+                "raw_title": product.raw_title,
+                "raw_description": product.raw_description,
+                "clean_title": None,
+                "category": None,
+                "brand": None,
+                "tags": None,
+                "status": "failed",
+                "error": str(exc),
+                "content_hash": None,
+            },
+            db_path=db_path,
+        )
+        increment_job_counter(job_id, "failed", db_path=db_path)
 
 
 async def process_job(
@@ -23,12 +81,13 @@ async def process_job(
     products: List[ProductInput],
     provider: Optional[BaseLLMProvider] = None,
     db_path: Union[Path, str] = DEFAULT_DB_PATH,
+    semaphore: Optional[asyncio.Semaphore] = None,
 ) -> None:
     """
     Process products for a job asynchronously in the background.
 
     - Updates job status to 'running'.
-    - Processes each product with LLM enrichment and validation.
+    - Processes products concurrently, strictly bounded by the shared LLM semaphore.
     - Saves individual product results to SQLite.
     - Updates job progress counters (done / failed).
     - Updates job status to 'completed' upon completion.
@@ -36,53 +95,25 @@ async def process_job(
     if provider is None:
         provider = MockLLMProvider()
 
+    if semaphore is None:
+        semaphore = get_llm_semaphore()
+
     # 1. Mark the job as running
     mark_job_running(job_id, db_path=db_path)
 
-    # 2. Process products sequentially
-    for product in products:
-        try:
-            raw_result = await provider.enrich(
-                raw_title=product.raw_title,
-                raw_description=product.raw_description,
-            )
-            validated = validate_enrichment(raw_result)
-
-            upsert_product(
-                {
-                    "sku": product.sku,
-                    "raw_title": product.raw_title,
-                    "raw_description": product.raw_description,
-                    "clean_title": validated["clean_title"],
-                    "category": validated["category"],
-                    "brand": validated["brand"],
-                    "tags": json.dumps(validated["tags"]),
-                    "status": "enriched",
-                    "error": None,
-                    "content_hash": None,
-                },
+    # 2. Process products bounded by the shared semaphore
+    await asyncio.gather(
+        *(
+            _process_single_product(
+                product=product,
+                job_id=job_id,
+                provider=provider,
                 db_path=db_path,
+                semaphore=semaphore,
             )
-            increment_job_counter(job_id, "done", db_path=db_path)
-
-        except Exception as exc:
-            logger.warning("Product enrichment failed for SKU %s: %s", product.sku, exc)
-            upsert_product(
-                {
-                    "sku": product.sku,
-                    "raw_title": product.raw_title,
-                    "raw_description": product.raw_description,
-                    "clean_title": None,
-                    "category": None,
-                    "brand": None,
-                    "tags": None,
-                    "status": "failed",
-                    "error": str(exc),
-                    "content_hash": None,
-                },
-                db_path=db_path,
-            )
-            increment_job_counter(job_id, "failed", db_path=db_path)
+            for product in products
+        )
+    )
 
     # 3. Mark the job as completed
     mark_job_completed(job_id, db_path=db_path)
