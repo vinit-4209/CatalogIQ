@@ -17,7 +17,7 @@ class DummyProvider(BaseLLMProvider):
 
 def test_abstract_base_cannot_be_instantiated():
     with pytest.raises(TypeError):
-        BaseLLMProvider()
+        BaseLLMProvider()  # type: ignore
 
 
 def test_concrete_provider_implements_interface():
