@@ -76,8 +76,24 @@
 
         <div id="jobDetailsContent" class="job-details hidden">
           <div class="job-meta-row">
-            <span class="meta-label">Job ID:</span>
-            <code class="meta-value" id="jobId">--</code>
+            <div>
+              <span class="meta-label">Job ID:</span>
+              <code class="meta-value" id="jobId">--</code>
+            </div>
+            <div>
+              <span class="meta-label">Created (IST):</span>
+              <code class="meta-value" id="jobCreatedAt" title="Indian Standard Time (IST)">--</code>
+            </div>
+          </div>
+          <div class="job-meta-row job-timing-row hidden" id="jobTimingRow">
+            <div id="jobStartedCol" class="hidden">
+              <span class="meta-label">Started:</span>
+              <code class="meta-value" id="jobStartedAt" title="Indian Standard Time (IST)">--</code>
+            </div>
+            <div id="jobFinishedCol" class="hidden">
+              <span class="meta-label">Finished:</span>
+              <code class="meta-value" id="jobFinishedAt" title="Indian Standard Time (IST)">--</code>
+            </div>
           </div>
 
           <div class="progress-section">

@@ -396,8 +396,15 @@ body {
 .job-meta-row {
   display: flex;
   align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
   gap: 0.5rem;
   font-size: 0.85rem;
+  margin-bottom: 0.75rem;
+}
+
+.job-timing-row {
+  margin-top: -0.25rem;
   margin-bottom: 1rem;
 }
 

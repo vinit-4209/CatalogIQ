@@ -36,6 +36,12 @@ const jobTotal = document.getElementById("jobTotal");
 const jobDone = document.getElementById("jobDone");
 const jobFailed = document.getElementById("jobFailed");
 const jobCacheHits = document.getElementById("jobCacheHits");
+const jobCreatedAt = document.getElementById("jobCreatedAt");
+const jobTimingRow = document.getElementById("jobTimingRow");
+const jobStartedCol = document.getElementById("jobStartedCol");
+const jobStartedAt = document.getElementById("jobStartedAt");
+const jobFinishedCol = document.getElementById("jobFinishedCol");
+const jobFinishedAt = document.getElementById("jobFinishedAt");
 
 const searchInput = document.getElementById("searchInput");
 const categoryFilter = document.getElementById("categoryFilter");
@@ -371,12 +377,64 @@ function hideUploadError() {
 }
 
 // --- Live Job Tracking ---
+function formatISTDate(isoString) {
+  if (!isoString) return "--";
+  try {
+    const d = new Date(isoString);
+    if (isNaN(d.getTime())) return isoString;
+    return (
+      d.toLocaleString("en-IN", {
+        timeZone: "Asia/Kolkata",
+        day: "2-digit",
+        month: "short",
+        year: "numeric",
+        hour: "2-digit",
+        minute: "2-digit",
+        second: "2-digit",
+        hour12: true,
+      }) + " IST"
+    );
+  } catch (err) {
+    return isoString;
+  }
+}
+
 function displayJob(job) {
   jobEmptyState.classList.add("hidden");
   jobDetailsContent.classList.remove("hidden");
 
   jobIdDisplay.textContent = job.id;
   updateStatusBadge(jobStatusBadge, job.status);
+
+  if (jobCreatedAt) {
+    jobCreatedAt.textContent = formatISTDate(job.created_at);
+  }
+
+  if (jobStartedAt && jobStartedCol) {
+    if (job.started_at) {
+      jobStartedAt.textContent = formatISTDate(job.started_at);
+      jobStartedCol.classList.remove("hidden");
+    } else {
+      jobStartedCol.classList.add("hidden");
+    }
+  }
+
+  if (jobFinishedAt && jobFinishedCol) {
+    if (job.finished_at) {
+      jobFinishedAt.textContent = formatISTDate(job.finished_at);
+      jobFinishedCol.classList.remove("hidden");
+    } else {
+      jobFinishedCol.classList.add("hidden");
+    }
+  }
+
+  if (jobTimingRow) {
+    if (job.started_at || job.finished_at) {
+      jobTimingRow.classList.remove("hidden");
+    } else {
+      jobTimingRow.classList.add("hidden");
+    }
+  }
 
   const done = job.done || 0;
   const failed = job.failed || 0;

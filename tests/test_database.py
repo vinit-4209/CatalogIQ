@@ -1,5 +1,14 @@
+from datetime import datetime, timedelta
 import json
-from app.database import init_db, get_connection
+from app.database import (
+    init_db,
+    get_connection,
+    create_job,
+    get_job,
+    mark_job_running,
+    mark_job_completed,
+    IST,
+)
 
 
 def test_database_tables_and_crud(tmp_path):
@@ -78,3 +87,30 @@ def test_database_tables_and_crud(tmp_path):
         assert prod_row["content_hash"] == "amul butter 500g pck of 2"
     finally:
         conn.close()
+
+
+def test_job_timestamps_use_indian_standard_time(tmp_path):
+    test_db_path = tmp_path / "test_ist.db"
+    init_db(test_db_path)
+
+    # 1. create_job sets created_at with +05:30 offset
+    job = create_job("j_ist_1", total=3, db_path=test_db_path)
+    assert job["created_at"].endswith("+05:30")
+    created_dt = datetime.fromisoformat(job["created_at"])
+    assert created_dt.tzinfo is not None
+    assert created_dt.utcoffset() == timedelta(hours=5, minutes=30)
+
+    # 2. mark_job_running sets started_at with +05:30 offset
+    mark_job_running("j_ist_1", db_path=test_db_path)
+    running_job = get_job("j_ist_1", db_path=test_db_path)
+    assert running_job["started_at"].endswith("+05:30")
+    started_dt = datetime.fromisoformat(running_job["started_at"])
+    assert started_dt.utcoffset() == timedelta(hours=5, minutes=30)
+
+    # 3. mark_job_completed sets finished_at with +05:30 offset
+    mark_job_completed("j_ist_1", db_path=test_db_path)
+    completed_job = get_job("j_ist_1", db_path=test_db_path)
+    assert completed_job["finished_at"].endswith("+05:30")
+    finished_dt = datetime.fromisoformat(completed_job["finished_at"])
+    assert finished_dt.utcoffset() == timedelta(hours=5, minutes=30)
+

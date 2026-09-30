@@ -53,3 +53,6 @@ htmlcov/
 # OS files
 .DS_Store
 Thumbs.db
+
+# Local documentation
+DOCS.md

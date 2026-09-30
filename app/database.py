@@ -1,8 +1,17 @@
 import os
 import sqlite3
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from pathlib import Path
 from typing import List, Optional, Tuple, Union
+
+# Indian Standard Time (IST = UTC+05:30)
+IST = timezone(timedelta(hours=5, minutes=30), name="IST")
+
+
+def get_current_ist_time() -> str:
+    """Return current timestamp in Indian Standard Time (IST, UTC+05:30) as ISO-8601 string."""
+    return datetime.now(IST).isoformat()
+
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 DEFAULT_DB_PATH = BASE_DIR / "data" / "catalogiq.db"
@@ -83,8 +92,8 @@ def init_db(
 def create_job(
     job_id: str, total: int, db_path: Optional[Union[Path, str]] = None
 ) -> dict:
-    """Insert a new job with 'queued' status."""
-    created_at = datetime.now(timezone.utc).isoformat()
+    """Insert a new job with 'queued' status and Indian Standard Time created_at timestamp."""
+    created_at = get_current_ist_time()
     conn = get_connection(db_path)
     try:
         with conn:
@@ -125,8 +134,8 @@ def get_job(
 def mark_job_running(
     job_id: str, db_path: Optional[Union[Path, str]] = None
 ) -> None:
-    """Update job status to 'running' and set started_at timestamp."""
-    now = datetime.now(timezone.utc).isoformat()
+    """Update job status to 'running' and set started_at timestamp in Indian Standard Time (IST)."""
+    now = get_current_ist_time()
     conn = get_connection(db_path)
     try:
         with conn:
@@ -141,8 +150,8 @@ def mark_job_running(
 def mark_job_completed(
     job_id: str, db_path: Optional[Union[Path, str]] = None
 ) -> None:
-    """Update job status to 'completed' and set finished_at timestamp."""
-    now = datetime.now(timezone.utc).isoformat()
+    """Update job status to 'completed' and set finished_at timestamp in Indian Standard Time (IST)."""
+    now = get_current_ist_time()
     conn = get_connection(db_path)
     try:
         with conn:

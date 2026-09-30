@@ -68,6 +68,8 @@ def test_post_jobs_valid(client):
     assert "id" in data
     assert data["total"] == 2
     assert data["status"] in ("queued", "running")
+    assert "created_at" in data
+    assert data["created_at"].endswith("+05:30")
 
 
 def test_post_jobs_empty_products(client):
