@@ -67,6 +67,12 @@ def serve_js():
     return FileResponse(FRONTEND_DIR / "app.js", media_type="application/javascript")
 
 
+@app.get("/papaparse.min.js", include_in_schema=False)
+def serve_papaparse():
+    """Serve PapaParse library."""
+    return FileResponse(FRONTEND_DIR / "papaparse.min.js", media_type="application/javascript")
+
+
 @app.get("/", response_class=FileResponse)
 def serve_root():
     """Serve the frontend single-page application."""

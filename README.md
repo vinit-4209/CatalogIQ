@@ -75,7 +75,7 @@ curl http://localhost:8000/api/health
 The test suite covers schema validation, database operations, concurrency semaphores, deduplication caching, retry backoffs, and API endpoints:
 
 ```bash
-# Run all tests (70 tests)
+# Run all tests (71 tests)
 pytest
 
 # Run tests with output and run times

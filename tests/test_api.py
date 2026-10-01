@@ -293,6 +293,7 @@ def test_serve_frontend_index(client):
     assert res.status_code == 200
     assert "CatalogIQ" in res.text
     assert "<!DOCTYPE html>" in res.text
+    assert "papaparse.min.js" in res.text
 
 
 def test_serve_frontend_static_assets(client):
@@ -303,4 +304,8 @@ def test_serve_frontend_static_assets(client):
     res_js = client.get("/app.js")
     assert res_js.status_code == 200
     assert "API_BASE" in res_js.text
+
+    res_papa = client.get("/papaparse.min.js")
+    assert res_papa.status_code == 200
+    assert "Papa Parse" in res_papa.text
 

@@ -187,83 +187,40 @@ function handleFileSelected() {
   }
 }
 
-// --- CSV Parsing ---
+// --- CSV Parsing (PapaParse) ---
 /**
- * Parse RFC 4180 CSV entirely in browser.
- * Handles quoted fields, embedded commas, escaped quotes (""), and empty lines.
+ * Parse CSV using PapaParse in the browser.
+ * Returns a Promise resolving to an array of rows (arrays of string values).
+ * Uses skipEmptyLines: "greedy" to ignore empty or whitespace-only lines.
  */
-function parseCSV(text) {
-  const rows = [];
-  let currentRow = [];
-  let currentField = "";
-  let inQuotes = false;
-  let i = 0;
-
-  while (i < text.length) {
-    const char = text[i];
-    const nextChar = text[i + 1];
-
-    if (inQuotes) {
-      if (char === '"') {
-        if (nextChar === '"') {
-          currentField += '"';
-          i += 2;
-          continue;
-        } else {
-          inQuotes = false;
-          i++;
-          continue;
-        }
-      } else {
-        currentField += char;
-        i++;
-        continue;
-      }
-    } else {
-      if (char === '"') {
-        inQuotes = true;
-        i++;
-        continue;
-      } else if (char === ",") {
-        currentRow.push(currentField);
-        currentField = "";
-        i++;
-        continue;
-      } else if (char === "\r") {
-        if (nextChar === "\n") i++;
-        currentRow.push(currentField);
-        currentField = "";
-        if (currentRow.some((f) => f.trim() !== "")) {
-          rows.push(currentRow);
-        }
-        currentRow = [];
-        i++;
-        continue;
-      } else if (char === "\n") {
-        currentRow.push(currentField);
-        currentField = "";
-        if (currentRow.some((f) => f.trim() !== "")) {
-          rows.push(currentRow);
-        }
-        currentRow = [];
-        i++;
-        continue;
-      } else {
-        currentField += char;
-        i++;
-        continue;
-      }
+function parseCSV(input) {
+  return new Promise((resolve, reject) => {
+    if (typeof Papa === "undefined" || !Papa.parse) {
+      return reject(new Error("PapaParse library is not loaded."));
     }
-  }
 
-  if (currentField !== "" || currentRow.length > 0) {
-    currentRow.push(currentField);
-    if (currentRow.some((f) => f.trim() !== "")) {
-      rows.push(currentRow);
-    }
-  }
-
-  return rows;
+    Papa.parse(input, {
+      skipEmptyLines: "greedy",
+      complete: (results) => {
+        if (results.errors && results.errors.length > 0) {
+          const fatalError = results.errors.find(
+            (err) => err.type === "Quotes" || err.code === "MissingQuotes"
+          );
+          if (fatalError) {
+            return reject(
+              new Error(
+                `CSV parse error on row ${fatalError.row !== undefined ? fatalError.row + 1 : "unknown"}: ${fatalError.message}`
+              )
+            );
+          }
+        }
+        resolve(results.data || []);
+      },
+      error: (err) => {
+        reject(err);
+      },
+    });
+  });
 }
 
 // --- Upload & Job Submission ---
@@ -277,21 +234,25 @@ async function handleUploadSubmit(e) {
     return;
   }
 
+  if (file.size === 0) {
+    showUploadError("The CSV file is empty.");
+    return;
+  }
+
   try {
-    const text = await file.text();
-    if (!text || text.trim() === "") {
+    const rows = await parseCSV(file);
+    if (!rows || rows.length === 0) {
       showUploadError("The CSV file is empty.");
       return;
     }
 
-    const rows = parseCSV(text);
     if (rows.length < 2) {
       showUploadError("The CSV file must contain a header row and at least one product row.");
       return;
     }
 
     // Match headers
-    const headerRow = rows[0].map((h) => h.trim().toLowerCase());
+    const headerRow = rows[0].map((h) => (h ? h.toString().trim().toLowerCase() : ""));
     const skuIdx = headerRow.indexOf("sku");
     const rawTitleIdx = headerRow.indexOf("raw_title");
     const rawDescIdx = headerRow.indexOf("raw_description");
@@ -311,9 +272,9 @@ async function handleUploadSubmit(e) {
       const row = rows[r];
       const rowNum = r + 1; // 1-indexed for user visibility
 
-      const sku = (row[skuIdx] || "").trim();
-      const rawTitle = (row[rawTitleIdx] || "").trim();
-      const rawDesc = rawDescIdx !== -1 ? (row[rawDescIdx] || "").trim() : null;
+      const sku = (row[skuIdx] || "").toString().trim();
+      const rawTitle = (row[rawTitleIdx] || "").toString().trim();
+      const rawDesc = rawDescIdx !== -1 ? (row[rawDescIdx] || "").toString().trim() : null;
 
       if (!sku) {
         showUploadError(`Row ${rowNum}: Product SKU cannot be empty.`);
