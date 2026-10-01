@@ -53,7 +53,7 @@ MOCK_FAILURE_RATE=0.1
 ```
 
 ### B. Real LLM Mode (Groq / Free Tier)
-Connects to Groq Cloud for fast inference using models like `openai/gpt-oss-120b` or `llama-3.3-70b-versatile`:
+Connects to Groq Cloud for fast inference using models like `openai/gpt-oss-120b`:
 ```env
 LLM_PROVIDER=groq
 GROQ_API_KEY=gsk_your_groq_api_key_here
